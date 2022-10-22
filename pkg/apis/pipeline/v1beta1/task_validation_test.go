@@ -62,12 +62,6 @@ func TestTaskValidate(t *testing.T) {
 		t    *v1beta1.Task
 		wc   func(context.Context) context.Context
 	}{{
-		name: "do not validate spec on delete",
-		t: &v1beta1.Task{
-			ObjectMeta: metav1.ObjectMeta{Name: "task"},
-		},
-		wc: apis.WithinDelete,
-	}, {
 		name: "valid task",
 		t: &v1beta1.Task{
 			ObjectMeta: metav1.ObjectMeta{Name: "task"},
@@ -161,7 +155,7 @@ func TestTaskSpecValidatePropagatedParamsAndWorkspaces(t *testing.T) {
 				Workspaces:   tt.fields.Workspaces,
 				Results:      tt.fields.Results,
 			}
-			ctx := config.EnableAlphaAPIFields(context.Background())
+			ctx := context.Background()
 			ts.SetDefaults(ctx)
 			ctx = config.SkipValidationDueToPropagatedParametersAndWorkspaces(ctx, true)
 			if err := ts.Validate(ctx); err != nil {

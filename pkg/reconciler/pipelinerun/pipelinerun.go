@@ -64,6 +64,7 @@ import (
 	"k8s.io/utils/clock"
 	"knative.dev/pkg/apis"
 	"knative.dev/pkg/controller"
+	"knative.dev/pkg/kmap"
 	"knative.dev/pkg/kmeta"
 	"knative.dev/pkg/logging"
 	pkgreconciler "knative.dev/pkg/reconciler"
@@ -495,8 +496,8 @@ func (c *Reconciler) reconcile(ctx context.Context, pr *v1beta1.PipelineRun, get
 
 	// Apply parameter substitution from the PipelineRun
 	pipelineSpec = resources.ApplyParameters(ctx, pipelineSpec, pr)
-	pipelineSpec = resources.ApplyContexts(ctx, pipelineSpec, pipelineMeta.Name, pr)
-	pipelineSpec = resources.ApplyWorkspaces(ctx, pipelineSpec, pr)
+	pipelineSpec = resources.ApplyContexts(pipelineSpec, pipelineMeta.Name, pr)
+	pipelineSpec = resources.ApplyWorkspaces(pipelineSpec, pr)
 	// Update pipelinespec of pipelinerun's status field
 	pr.Status.PipelineSpec = pipelineSpec
 
@@ -1245,24 +1246,11 @@ func (c *Reconciler) updateLabelsAndAnnotations(ctx context.Context, pr *v1beta1
 		// to deal with Patch (setting resourceVersion, and optimistic concurrency checks).
 		newPr = newPr.DeepCopy()
 		// Properly merge labels and annotations, as the labels *might* have changed during the reconciliation
-		newPr.Labels = merge(newPr.Labels, pr.Labels)
-		newPr.Annotations = merge(newPr.Annotations, pr.Annotations)
+		newPr.Labels = kmap.Union(newPr.Labels, pr.Labels)
+		newPr.Annotations = kmap.Union(newPr.Annotations, pr.Annotations)
 		return c.PipelineClientSet.TektonV1beta1().PipelineRuns(pr.Namespace).Update(ctx, newPr, metav1.UpdateOptions{})
 	}
 	return newPr, nil
-}
-
-func merge(new, old map[string]string) map[string]string {
-	if new == nil {
-		new = map[string]string{}
-	}
-	if old == nil {
-		return new
-	}
-	for k, v := range old {
-		new[k] = v
-	}
-	return new
 }
 
 func storePipelineSpecAndMergeMeta(pr *v1beta1.PipelineRun, ps *v1beta1.PipelineSpec, meta *metav1.ObjectMeta) error {
@@ -1270,30 +1258,12 @@ func storePipelineSpecAndMergeMeta(pr *v1beta1.PipelineRun, ps *v1beta1.Pipeline
 	if pr.Status.PipelineSpec == nil {
 		pr.Status.PipelineSpec = ps
 
-		// Propagate labels from Pipeline to PipelineRun.
-		if pr.ObjectMeta.Labels == nil {
-			pr.ObjectMeta.Labels = make(map[string]string, len(meta.Labels)+1)
-		}
-		for key, value := range meta.Labels {
-			// Do not override duplicates between PipelineRun and Pipeline
-			// PipelineRun labels take precedences over Pipeline
-			if _, ok := pr.ObjectMeta.Labels[key]; !ok {
-				pr.ObjectMeta.Labels[key] = value
-			}
-		}
+		// Propagate labels from Pipeline to PipelineRun. PipelineRun labels take precedences over Pipeline.
+		pr.ObjectMeta.Labels = kmap.Union(meta.Labels, pr.ObjectMeta.Labels)
 		pr.ObjectMeta.Labels[pipeline.PipelineLabelKey] = meta.Name
 
-		// Propagate annotations from Pipeline to PipelineRun.
-		if pr.ObjectMeta.Annotations == nil {
-			pr.ObjectMeta.Annotations = make(map[string]string, len(meta.Annotations))
-		}
-		for key, value := range meta.Annotations {
-			// Do not override duplicates between PipelineRun and Pipeline
-			// PipelineRun labels take precedences over Pipeline
-			if _, ok := pr.ObjectMeta.Annotations[key]; !ok {
-				pr.ObjectMeta.Annotations[key] = value
-			}
-		}
+		// Propagate annotations from Pipeline to PipelineRun. PipelineRun annotations take precedences over Pipeline.
+		pr.ObjectMeta.Annotations = kmap.Union(meta.Annotations, pr.ObjectMeta.Annotations)
 
 	}
 	return nil
